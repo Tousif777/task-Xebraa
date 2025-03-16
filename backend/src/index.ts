@@ -8,6 +8,7 @@ import { Server } from "socket.io";
 import { initializeSocket } from "./socket";
 import authRoutes from "./routes/auth";
 import notesRoutes from "./routes/notes";
+import { errorHandler } from "./middleware/errorHandler";
 
 // Load environment variables
 dotenv.config();
@@ -35,6 +36,17 @@ app.use(cookieParser());
 app.use("/auth", authRoutes);
 app.use("/notes", notesRoutes);
 
+// 404 handler for undefined routes
+app.all("*", (req, res, next) => {
+    res.status(404).json({
+        status: "error",
+        message: `Cannot find ${req.originalUrl} on this server!`,
+    });
+});
+
+// Global error handler middleware
+app.use(errorHandler);
+
 // Connect to MongoDB
 mongoose
     .connect(process.env.MONGODB_URI || "mongodb://localhost:27017/notes-app")
@@ -48,7 +60,18 @@ mongoose
     })
     .catch((error) => {
         console.error("MongoDB connection error:", error);
+        process.exit(1); // Exit process with failure
     });
+
+// Unhandled promise rejection handler
+process.on("unhandledRejection", (err: Error) => {
+    console.error("UNHANDLED REJECTION! 💥 Shutting down...");
+    console.error(err.name, err.message);
+    // Close server gracefully
+    httpServer.close(() => {
+        process.exit(1);
+    });
+});
 
 // Socket.io connection
 io.on("connection", (socket) => {

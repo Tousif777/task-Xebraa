@@ -1,7 +1,9 @@
-import { Request, Response } from "express";
+import { Request, Response, NextFunction } from "express";
 import { User, IUser } from "../models/User";
 import { Types } from "mongoose";
 import { generateTokens, verifyRefreshToken } from "../utils/jwt";
+import { asyncHandler } from "../middleware/asyncHandler";
+import { AuthenticationError, BadRequestError, ConflictError, NotFoundError } from "../utils/errors";
 
 interface AuthRequest extends Request {
     user?: IUser;
@@ -14,86 +16,86 @@ const REFRESH_TOKEN_COOKIE_OPTIONS = {
     maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
 };
 
-export const register = async (req: Request, res: Response) => {
-    try {
-        const { email, password, name } = req.body;
+export const register = asyncHandler(async (req: Request, res: Response) => {
+    const { email, password, name } = req.body;
 
-        const existingUser = await User.findOne({ email });
-        if (existingUser) {
-            return res.status(400).json({ message: "User already exists" });
-        }
-
-        const user = new User({ email, password, name });
-        await user.save();
-
-        const { accessToken, refreshToken } = generateTokens(user._id);
-        user.refreshToken = refreshToken;
-        await user.save();
-
-        // Set refresh token as HTTP-only cookie
-        res.cookie("refreshToken", refreshToken, REFRESH_TOKEN_COOKIE_OPTIONS);
-
-        res.status(201).json({
-            user: {
-                id: user._id,
-                email: user.email,
-                name: user.name,
-            },
-            accessToken,
-        });
-    } catch (error) {
-        res.status(500).json({ message: "Server error" });
+    if (!email || !password) {
+        throw new BadRequestError("Email and password are required");
     }
-};
 
-export const login = async (req: Request, res: Response) => {
-    try {
-        const { email, password } = req.body;
-
-        const user = await User.findOne({ email }).exec();
-        if (!user) {
-            return res.status(401).json({ message: "Invalid credentials" });
-        }
-
-        const isMatch = await user.comparePassword(password);
-        if (!isMatch) {
-            return res.status(401).json({ message: "Invalid credentials" });
-        }
-
-        const { accessToken, refreshToken } = generateTokens(user._id);
-        user.refreshToken = refreshToken;
-        await user.save();
-
-        // Set refresh token as HTTP-only cookie
-        res.cookie("refreshToken", refreshToken, REFRESH_TOKEN_COOKIE_OPTIONS);
-
-        res.json({
-            user: {
-                id: user._id,
-                email: user.email,
-                name: user.name,
-            },
-            accessToken,
-        });
-    } catch (error) {
-        res.status(500).json({ message: "Server error" });
+    const existingUser = await User.findOne({ email });
+    if (existingUser) {
+        throw new ConflictError("User with this email already exists");
     }
-};
 
-export const refresh = async (req: Request, res: Response) => {
+    const user = new User({ email, password, name });
+    await user.save();
+
+    const { accessToken, refreshToken } = generateTokens(user._id);
+    user.refreshToken = refreshToken;
+    await user.save();
+
+    // Set refresh token as HTTP-only cookie
+    res.cookie("refreshToken", refreshToken, REFRESH_TOKEN_COOKIE_OPTIONS);
+
+    res.status(201).json({
+        user: {
+            id: user._id,
+            email: user.email,
+            name: user.name,
+        },
+        accessToken,
+    });
+});
+
+export const login = asyncHandler(async (req: Request, res: Response) => {
+    const { email, password } = req.body;
+
+    if (!email || !password) {
+        throw new BadRequestError("Email and password are required");
+    }
+
+    const user = await User.findOne({ email }).exec();
+    if (!user) {
+        throw new AuthenticationError("Invalid credentials");
+    }
+
+    const isMatch = await user.comparePassword(password);
+    if (!isMatch) {
+        throw new AuthenticationError("Invalid credentials");
+    }
+
+    const { accessToken, refreshToken } = generateTokens(user._id);
+    user.refreshToken = refreshToken;
+    await user.save();
+
+    // Set refresh token as HTTP-only cookie
+    res.cookie("refreshToken", refreshToken, REFRESH_TOKEN_COOKIE_OPTIONS);
+
+    res.json({
+        user: {
+            id: user._id,
+            email: user.email,
+            name: user.name,
+        },
+        accessToken,
+    });
+});
+
+export const refresh = asyncHandler(async (req: Request, res: Response) => {
+    const refreshToken = req.cookies.refreshToken;
+    if (!refreshToken) {
+        throw new AuthenticationError("Refresh token required");
+    }
+
     try {
-        const refreshToken = req.cookies.refreshToken;
-        if (!refreshToken) {
-            return res.status(401).json({ message: "Refresh token required" });
-        }
-
         const decoded = (await verifyRefreshToken(refreshToken)) as {
             userId: string;
         };
 
         const user = await User.findById(decoded.userId).exec();
         if (!user || user.refreshToken !== refreshToken) {
-            return res.status(401).json({ message: "Invalid refresh token" });
+            throw new AuthenticationError("Invalid refresh token");
         }
 
         const tokens = generateTokens(user._id);
@@ -116,28 +118,25 @@ export const refresh = async (req: Request, res: Response) => {
             },
         });
     } catch (error) {
-        console.error("Token refresh error:", error);
-        res.status(401).json({ message: "Invalid refresh token" });
+        throw new AuthenticationError("Invalid or expired refresh token");
     }
-};
+});
 
-export const logout = async (req: AuthRequest, res: Response) => {
-    try {
-        if (!req.user?._id) {
-            return res.status(401).json({ message: "User not found" });
-        }
-
-        const user = await User.findById(req.user._id).exec();
-        if (user) {
-            user.refreshToken = undefined;
-            await user.save();
-        }
-
-        // Clear refresh token cookie
-        res.clearCookie("refreshToken", REFRESH_TOKEN_COOKIE_OPTIONS);
-
-        res.json({ message: "Logged out successfully" });
-    } catch (error) {
-        res.status(500).json({ message: "Server error" });
+export const logout = asyncHandler(async (req: AuthRequest, res: Response) => {
+    if (!req.user?._id) {
+        throw new AuthenticationError("User not authenticated");
     }
-};
+
+    const user = await User.findById(req.user._id).exec();
+    if (!user) {
+        throw new NotFoundError("User");
+    }
+    
+    user.refreshToken = undefined;
+    await user.save();
+
+    // Clear refresh token cookie
+    res.clearCookie("refreshToken", REFRESH_TOKEN_COOKIE_OPTIONS);
+
+    res.json({ message: "Logged out successfully" });
+});
