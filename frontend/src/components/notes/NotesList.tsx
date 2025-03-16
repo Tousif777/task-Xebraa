@@ -4,7 +4,7 @@ import { Note, notesApi } from "../../services/notesApi";
 import { Button } from "../ui/button";
 import { useToast } from "../ui/use-toast";
 import { useAuth } from "../../hooks/useAuth";
-import { Loader2, Plus, LogOut, Pencil, Trash2, Search, StickyNote } from "lucide-react";
+import { Loader2, Plus, LogOut, Pencil, Search, StickyNote } from "lucide-react";
 import { Input } from "../ui/input";
 import { motion } from "framer-motion";
 import { format } from "date-fns";
@@ -36,23 +36,6 @@ export const NotesList = () => {
     useEffect(() => {
         loadNotes();
     }, [loadNotes]);
-
-    const handleDelete = async (id: string) => {
-        try {
-            await notesApi.deleteNote(id);
-            setNotes(notes.filter((note) => note._id !== id));
-            toast({
-                title: "Success",
-                description: "Note deleted successfully",
-            });
-        } catch {
-            toast({
-                variant: "destructive",
-                title: "Error",
-                description: "Failed to delete note",
-            });
-        }
-    };
 
     const handleLogout = async () => {
         try {
@@ -201,20 +184,15 @@ export const NotesList = () => {
                                         variant="ghost"
                                         size="sm"
                                         className="h-8 w-8 p-0 rounded-full"
-                                        onClick={() => navigate(`/notes/${note._id}`)}
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            navigate(`/notes/${note._id}`);
+                                        }}
                                     >
                                         <Pencil className="h-4 w-4" />
                                         <span className="sr-only">Edit</span>
                                     </Button>
-                                    <Button
-                                        variant="ghost"
-                                        size="sm"
-                                        className="h-8 w-8 p-0 rounded-full text-destructive hover:text-destructive hover:bg-destructive/10"
-                                        onClick={() => handleDelete(note._id)}
-                                    >
-                                        <Trash2 className="h-4 w-4" />
-                                        <span className="sr-only">Delete</span>
-                                    </Button>
+                                    {/* Delete button removed - only show on individual note page */}
                                 </CardFooter>
                                 {/* Hover overlay with fade gradient for better readability */}
                                 <div 

@@ -16,7 +16,8 @@ import {
     Clock,
     User,
     CheckCircle2,
-    AlertCircle
+    AlertCircle,
+    Trash2
 } from "lucide-react";
 import { socketService } from "../../services/socket";
 import { useAuth } from "../../hooks/useAuth";
@@ -28,6 +29,7 @@ import {
     DialogTitle,
     DialogTrigger,
     DialogFooter,
+    DialogDescription
 } from "../ui/dialog";
 import { Avatar, AvatarFallback } from "../ui/avatar";
 import { Badge } from "../ui/badge";
@@ -55,6 +57,8 @@ export function NoteEditor() {
     const [newCollaboratorEmail, setNewCollaboratorEmail] = useState("");
     const [lastSaved, setLastSaved] = useState<Date | null>(null);
     const typingTimeoutRef = React.useRef<NodeJS.Timeout>();
+    const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
+    const [deleting, setDeleting] = useState(false);
 
     useEffect(() => {
         if (id) {
@@ -259,6 +263,29 @@ export function NoteEditor() {
                     error.response?.data?.message ||
                     "Failed to remove collaborator",
             });
+        }
+    };
+
+    const handleDelete = async () => {
+        if (!id) return;
+        
+        try {
+            setDeleting(true);
+            await notesApi.deleteNote(id);
+            toast({
+                title: "Success",
+                description: "Note deleted successfully",
+            });
+            navigate("/notes");
+        } catch (error) {
+            toast({
+                variant: "destructive",
+                title: "Error",
+                description: "Failed to delete note",
+            });
+        } finally {
+            setDeleting(false);
+            setIsDeleteDialogOpen(false);
         }
     };
 
@@ -579,7 +606,7 @@ export function NoteEditor() {
                                         </span>
                                     </div>
                                     
-                                    <div className="pt-2">
+                                    <div className="pt-2 space-y-2">
                                         <Button 
                                             variant="outline" 
                                             size="sm" 
@@ -588,6 +615,48 @@ export function NoteEditor() {
                                         >
                                             Back to All Notes
                                         </Button>
+                                        
+                                        {isAuthor && (
+                                            <Dialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
+                                                <DialogTrigger asChild>
+                                                    <Button 
+                                                        variant="destructive" 
+                                                        size="sm" 
+                                                        className="w-full text-xs"
+                                                    >
+                                                        <Trash2 className="h-3.5 w-3.5 mr-1.5" />
+                                                        Delete Note
+                                                    </Button>
+                                                </DialogTrigger>
+                                                <DialogContent>
+                                                    <DialogHeader>
+                                                        <DialogTitle>Delete Note</DialogTitle>
+                                                        <DialogDescription>
+                                                            Are you sure you want to delete this note? This action cannot be undone.
+                                                        </DialogDescription>
+                                                    </DialogHeader>
+                                                    <DialogFooter className="gap-2 sm:gap-0">
+                                                        <Button variant="outline" onClick={() => setIsDeleteDialogOpen(false)}>
+                                                            Cancel
+                                                        </Button>
+                                                        <Button 
+                                                            variant="destructive" 
+                                                            onClick={handleDelete}
+                                                            disabled={deleting}
+                                                        >
+                                                            {deleting ? (
+                                                                <>
+                                                                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                                                                    Deleting...
+                                                                </>
+                                                            ) : (
+                                                                <>Delete</>
+                                                            )}
+                                                        </Button>
+                                                    </DialogFooter>
+                                                </DialogContent>
+                                            </Dialog>
+                                        )}
                                     </div>
                                 </div>
                             </CardContent>
